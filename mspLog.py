@@ -66,7 +66,7 @@ GRAPHTHIS = {
     'MSP_RAW_GPS' : (),
 }
 
-band_rate = 115200
+baud_rate = 115200
 ihead_flag = '$M>'
 ser = None
 data_length = 0
@@ -275,10 +275,10 @@ def connect():
     try:
         global ser
         while True:
-            serial_port = commands.getoutput('ls /dev/ttyUSB*')
-            print serial_port + ' Opened'
+            serial_port = sys.argv[1]
+            print serial_port + ' Opened with baud rate ' + str(baud_rate)
             if serial_port:
-                ser = serial.Serial(serial_port, band_rate)
+                ser = serial.Serial(serial_port, baud_rate)
                 if ser:
                     break
             time.sleep(1)
@@ -289,6 +289,10 @@ def connect():
 
 
 if __name__ == "__main__":
+
+    if len(sys.argv) == 3:
+        baud_rate = sys.argv[2]
+
     connect()
     #open csv
     f = open('output.csv', 'w')
