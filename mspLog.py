@@ -50,7 +50,7 @@ CMD2CODE = {
 }
 
 # polling rate in seconds
-pollRate = .1
+pollRate =.2
 # update rate of graph data in seconds
 graphUpdateRate = .2
 
@@ -58,12 +58,13 @@ readyToGraph = False
 
 # codes to graph
 GRAPHTHIS = {
-    'MSP_RAW_IMU' : (),
-    'MSP_ATTITUDE' : (),
-    'MSP_ALTITUDE' : (),
-    'MSP_RC' : (),
-    'MSP_MOTOR' : (),
-    'MSP_RAW_GPS' : (),
+#    'MSP_RAW_IMU' : (),
+#    'MSP_ATTITUDE' : (),
+    #'MSP_ALTITUDE' : (),
+#    'MSP_RC' : (),
+#    'MSP_MOTOR' : (),
+    #'MSP_RAW_GPS' : (),
+    'MSP_DEBUG' : (),
 }
 
 baud_rate = 115200
@@ -101,24 +102,44 @@ CODEDATATYPES = {
     254: {'type': 'hhhh'},
 }
 
-def sendData(data_length, code, data):
-    checksum = 0
-    total_data = ['$', 'M', '<', data_length, code] + data
-    for i in struct.pack('<2B%dh' % len(data), *total_data[3:len(total_data)]):
-        checksum = checksum ^ ord(i)
+def sendData(data_size, code, data):
+    HEADER='$M<'
+    #print "Data", data
 
-    total_data.append(checksum)
+    if code==CMD2CODE['MSP_SET_RAW_RC']:
+        data_raw=[]
+        for i in xrange(len(data)):
+            #print data[i] & 0xff
+            # uint16
+            data_raw+=[data[i] & 0xff]
+            data_raw+=[(data[i] >> 8) & 0xff]
+            data_raw_chr=reduce(lambda x,y:x+y,map(chr,data_raw))
 
-    #print ser
-    try:
-        b = None
-        b = ser.write(struct.pack('<3c2B%dhB' % len(data), *total_data))
-        ser.flush()
-    except Exception, ex:
-        print 'send data is_valid_serial fail'
-        is_valid_serial = False;
-        connect()
-    return b
+    elif code==CMD2CODE['MSP_SET_PID']:
+        data_raw=[]
+        for i in xrange(len(data)):
+            #print data[i] & 0xff
+            # uint8
+            data_raw+=[data[i] & 0xff]
+            data_raw_chr=reduce(lambda x,y:x+y,map(chr,data_raw))
+
+    elif data_size==0:
+        data_raw=[]
+        data_raw_chr=''
+    else:
+        print "Error: Unknown send"
+    checksum=(reduce(lambda x,y:x^y,data_raw+[code]+[data_size]) & 0xff)
+    #print HEADER
+    #print chr(data_size)+chr(code)+data_raw_chr+chr(checksum)
+    ser_data=HEADER+chr(data_size)+chr(code)+data_raw_chr+chr(checksum)
+    #print "Data: ", data
+    #print "data_raw: ", data_raw
+    #print "Checksum: ", hex(checksum)
+    #print "data hex", map(hex,data_raw)
+    #print "ser_data", map(str,ser_data)
+    #print "ser_data_hex", map(ord,ser_data)
+    ser.write(ser_data)
+    ser.flush()
 
 class pollThread(threading.Thread):
     def __init__(self):
@@ -136,14 +157,14 @@ class pollThread(threading.Thread):
                 #~ rc_data[i] = random.randint(1100, 1900)
                 #~ i = i -1
             #~ sendData(16, CMD2CODE['MSP_SET_RAW_RC'], rc_data)
-            sendData(0, CMD2CODE['MSP_RAW_IMU'], [])
-            sendData(0, CMD2CODE['MSP_ATTITUDE'], [])
-            sendData(0, CMD2CODE['MSP_ALTITUDE'], [])
-            sendData(0, CMD2CODE['MSP_RC'], [])
-            sendData(0, CMD2CODE['MSP_MOTOR'], [])
-            sendData(0, CMD2CODE['MSP_RAW_GPS'], [])
-            sendData(0, CMD2CODE['MSP_COMP_GPS'], [])
-            sendData(0, CMD2CODE['MSP_ANALOG'], [])
+            #sendData(0, CMD2CODE['MSP_RAW_IMU'], [])
+            #sendData(0, CMD2CODE['MSP_ATTITUDE'], [])
+            #sendData(0, CMD2CODE['MSP_ALTITUDE'], [])
+            #sendData(0, CMD2CODE['MSP_RC'], [])
+            #sendData(0, CMD2CODE['MSP_MOTOR'], [])
+            #sendData(0, CMD2CODE['MSP_RAW_GPS'], [])
+            #sendData(0, CMD2CODE['MSP_COMP_GPS'], [])
+            sendData(0, CMD2CODE['MSP_DEBUG'], [])
             time.sleep(pollRate)
 
 class graphThread(threading.Thread):
@@ -153,36 +174,40 @@ class graphThread(threading.Thread):
     def run(self):
         self.capture()
 
-    def end(self):
-        f.close();
-
     def capture(self):
         global readyToGraph
         # write csv header
+        f = open('output.csv', 'w')
         for key, value in GRAPHTHIS.iteritems():
             l = len(CODEDATATYPES[CMD2CODE[key]]['type'])
             for x in range(0, l):
                 f.write(str(key) + str(x) + ',')
         f.write('DATETIME')
         f.write('\n')
+        f.close()
         print 'Waiting for data to flow'
         startTime = int(round(time.time()))
         while 1:
             if readyToGraph == True:
+                f = open('output.csv', 'a')
                 # we have data
                 sys.stdout.write("Collecting Data for " + str(int(round(time.time()))-startTime) + " seconds\r")
                 sys.stdout.flush()
-                #print GRAPHTHIS
+                print GRAPHTHIS
                 # write csv lines
                 for key, value in GRAPHTHIS.iteritems():
                     for v in value:
-                        f.write(str(v))
+                        if v == '':
+                          f.write('0');
+                        else:
+                          f.write(str(v))
                         f.write(',')
                 #millis epoch
                 #millis = int(round(time.time() * 1000))
                 now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f");
                 f.write(str(now))
                 f.write('\n');
+                f.close();
             time.sleep(graphUpdateRate);
 
 class receiveData(threading.Thread):
@@ -202,11 +227,14 @@ class receiveData(threading.Thread):
             for key, value in CMD2CODE.iteritems():
                 if (value == code):
                     codeword = key
-            dataTuple = struct.unpack('<' + CODEDATATYPES[code]['type'], data[2:2+dl])
-            #print 'code ' + str(code) + ' ' + codeword + ': ' + str(dataTuple)
-            if codeword in GRAPHTHIS:
-                readyToGraph = True
-                GRAPHTHIS[codeword] = dataTuple
+            try:
+                dataTuple = struct.unpack('<' + CODEDATATYPES[code]['type'], data[2:2+dl])
+                #print 'code ' + str(code) + ' ' + codeword + ': ' + str(dataTuple)
+                if codeword in GRAPHTHIS:
+                    readyToGraph = True
+                    GRAPHTHIS[codeword] = dataTuple
+            except Exception:
+                print 'error unpacking'
         else:
             print 'code ' + str(code) + ' not in CODEDATATYPES'
         return
@@ -295,7 +323,9 @@ if __name__ == "__main__":
 
     connect()
     #open csv
-    f = open('output.csv', 'w')
+    #wait 5 sec
+    print 'Waiting 5 seconds to begin, otherwise FC resets'
+    time.sleep(5)
     #start threads
     rd = receiveData()
     rd.daemon = True
@@ -314,5 +344,4 @@ if __name__ == "__main__":
             time.sleep(.5)
         except KeyboardInterrupt:
             print 'Exiting'
-            gd.end()
             sys.exit();
